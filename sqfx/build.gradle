@@ -1,0 +1,149 @@
+plugins {
+	id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'squirrel-sql'
+
+def currDate = new Date()
+def DSTAMP = currDate.format('yyyyMMdd')
+def TSTAMP = currDate.format('HHmm')
+
+//DEFINE VERSION HERE ONLY
+//version = '0.'  //release version
+version = "snapshot-${DSTAMP}_${TSTAMP}"  //development version
+
+defaultTasks 'buildAll'
+
+ext {
+    mainClassName = 'org.squirrelsql.Main'
+    launcherClassName = 'org.squirrelsql.Launcher'
+
+    //3rd-party libraries in core/lib, for the compile classpath
+    coreLibClasspath = fileTree(dir: 'core/lib', include: '*.jar', exclude: 'versioncheck.jar')
+    javafxVersion = '17.0.16'
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+compileJava {
+    options.release = 17
+    options.encoding = 'UTF-8'
+}
+
+javafx {
+    version = javafxVersion
+    modules = ['javafx.controls', 'javafx.fxml', 'javafx.swing']
+}
+
+dependencies {
+    implementation coreLibClasspath
+}
+
+application {
+    mainClass = project.mainClassName
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['core/src']
+        }
+        resources {
+            //initialize the srcDirs property to remove the default src/main/resources,
+            //and add other resources from core/src (excluding *.java by default)
+            srcDirs = ['core/src']
+        }
+    }
+}
+
+processResources {
+    filesMatching('org/squirrelsql/splash/Version.properties') {
+        filter { line ->
+            line.replace('squirrelsql.version.value', version)
+        }
+        filteringCharset = java.nio.charset.StandardCharsets.UTF_8
+    }
+}
+
+jar {
+    archiveFileName = "squirrel-sql-fx.jar"
+
+    manifest {
+        attributes(
+            'Main-Class': project.launcherClassName,
+            'Class-Path': configurations.runtimeClasspath.collect { 'lib/' + it.name }.join(' '),
+            'JavaFX-Version': javafxVersion,
+            'Built-By': System.getProperty('user.name'),
+            'Created-By': System.getProperty('java.runtime.version') + ' (' + System.getProperty('java.vendor') + ')',
+            'Gradle-Version': 'Gradle ' + gradle.getGradleVersion(),
+        )
+    }
+}
+
+run {
+    //args '--p=<propertiesFilePath>'
+
+    debugOptions {
+        enabled = true
+        port = 5566
+        server = true
+        suspend = false
+    }
+}
+
+//custom task for creating zip distribution
+task createZipDistribution(type: Zip) {
+    def osString = javafx.platform.classifier
+    destinationDirectory = file("$buildDir/plainZip")
+
+    def internalFolder = "squirrelsqlfx-$project.version-$osString"
+    archiveFileName = internalFolder + '.zip'
+
+    into internalFolder
+
+    from jar
+
+    if (osString.startsWith('win')) {
+        from ('launcher') {
+            include '*.bat'
+        }
+    }
+    else {
+        from ('launcher') {
+            include '*.sh'
+        }
+    }
+
+    from ('core') {
+        include 'doc/**'
+    }
+
+    from ('core/lib') {
+        include 'versioncheck.jar'
+        into 'versioncheck'
+    }
+
+    //include JavaFX native libraries (of the current OS running the build)
+    //to the 'lib' sub-folder
+    from (configurations.runtimeClasspath) {
+        into 'lib'
+    }
+
+    from ('core/src/org/squirrelsql/globalicons') {
+        include 'splash.jpg'
+        into 'icons'
+    }
+}
+
+task runApp {
+    //execute the 'application' plugin's run task
+    dependsOn run
+}
+
+task buildAll {
+    dependsOn createZipDistribution
+}
